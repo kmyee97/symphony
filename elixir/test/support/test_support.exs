@@ -206,7 +206,15 @@ defmodule SymphonyElixir.TestSupport do
   end
 
   defp yaml_value(value) when is_binary(value) do
-    "\"" <> String.replace(value, "\"", "\\\"") <> "\""
+    escaped_value =
+      value
+      |> String.replace("\\", "\\\\")
+      |> String.replace("\"", "\\\"")
+      |> String.replace("\r", "\\r")
+      |> String.replace("\n", "\\n")
+      |> String.replace("\t", "\\t")
+
+    "\"" <> escaped_value <> "\""
   end
 
   defp yaml_value(value) when is_integer(value), do: to_string(value)

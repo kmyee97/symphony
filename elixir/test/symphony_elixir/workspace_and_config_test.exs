@@ -80,6 +80,21 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     end
   end
 
+  test "workflow fixtures preserve filesystem workspace roots" do
+    workspace_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-workspace-yaml-root-#{System.unique_integer([:positive])}"
+      )
+
+    write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
+
+    assert Config.settings!().workspace.root == workspace_root
+
+    assert Config.local_workspace_root() ==
+             Path.expand(workspace_root, Path.dirname(Workflow.workflow_file_path()))
+  end
+
   test "workspace keys disambiguate identifiers that sanitize to the same path" do
     workspace_root =
       Path.join(
