@@ -17,6 +17,29 @@ defmodule SymphonyElixir.SpecsCheckTest do
     assert Enum.map(findings, &SpecsCheck.finding_identifier/1) == ["Sample.missing/1"]
   end
 
+  test "recursively discovers only Elixir source files" do
+    dir = create_tmp_dir()
+    missing_path = Path.join([dir, "nested", "missing.ex"])
+
+    write_module!(dir, "nested/missing.ex", """
+    defmodule Nested.Missing do
+      def missing(arg), do: arg
+    end
+    """)
+
+    write_module!(dir, "nested/compliant.ex", """
+    defmodule Nested.Compliant do
+      @spec ok(term()) :: term()
+      def ok(arg), do: arg
+    end
+    """)
+
+    File.write!(Path.join([dir, "nested", "notes.txt"]), "not Elixir source\n")
+
+    assert [%{file: ^missing_path, module: "Nested.Missing", name: :missing, arity: 1}] =
+             SpecsCheck.missing_public_specs([dir])
+  end
+
   test "accepts adjacent @spec on public function" do
     dir = create_tmp_dir()
 
@@ -87,6 +110,7 @@ defmodule SymphonyElixir.SpecsCheckTest do
 
   defp write_module!(dir, rel_path, source) do
     path = Path.join(dir, rel_path)
+    File.mkdir_p!(Path.dirname(path))
     File.write!(path, source)
   end
 end
