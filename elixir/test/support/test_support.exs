@@ -22,7 +22,13 @@ defmodule SymphonyElixir.TestSupport do
       alias SymphonyElixir.Workspace
 
       import SymphonyElixir.TestSupport,
-        only: [write_workflow_file!: 1, write_workflow_file!: 2, restore_env: 2, stop_default_http_server: 0]
+        only: [
+          write_workflow_file!: 1,
+          write_workflow_file!: 2,
+          restore_env: 2,
+          stop_default_http_server: 0,
+          with_test_symlink: 3
+        ]
 
       setup do
         workflow_root =
@@ -67,6 +73,22 @@ defmodule SymphonyElixir.TestSupport do
 
   def restore_env(key, nil), do: System.delete_env(key)
   def restore_env(key, value), do: System.put_env(key, value)
+
+  @spec with_test_symlink(Path.t(), Path.t(), (-> term())) :: :ok
+  def with_test_symlink(target, path, assertion) when is_function(assertion, 0) do
+    case File.ln_s(target, path) do
+      :ok ->
+        assertion.()
+        :ok
+
+      {:error, reason} when reason in [:eacces, :eperm, :not_owner] ->
+        IO.warn("Skipping symlink assertion because this host disallows test symlink creation: #{inspect(reason)}")
+        :ok
+
+      {:error, reason} ->
+        raise "Could not create test symlink #{inspect(path)} -> #{inspect(target)}: #{inspect(reason)}"
+    end
+  end
 
   def stop_default_http_server do
     case Enum.find(Supervisor.which_children(SymphonyElixir.Supervisor), fn

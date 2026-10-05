@@ -482,28 +482,25 @@ defmodule SymphonyElixir.Workspace do
 
   defp validate_local_workspace_path(workspace, workspace_root)
        when is_binary(workspace) and is_binary(workspace_root) do
-    expanded_workspace = Path.expand(workspace)
-    expanded_root = Path.expand(workspace_root)
-    expanded_root_prefix = expanded_root <> "/"
+    case PathSafety.canonical_descendant(workspace, workspace_root) do
+      {:ok, _canonical_workspace} ->
+        :ok
 
-    with {:ok, canonical_workspace} <- PathSafety.canonicalize(expanded_workspace),
-         {:ok, canonical_root} <- PathSafety.canonicalize(expanded_root) do
-      canonical_root_prefix = canonical_root <> "/"
-
-      cond do
-        canonical_workspace == canonical_root ->
+      {:error, :workspace_root} ->
+        with {:ok, canonical_workspace} <- PathSafety.canonicalize(workspace),
+             {:ok, canonical_root} <- PathSafety.canonicalize(workspace_root) do
           {:error, {:workspace_equals_root, canonical_workspace, canonical_root}}
+        else
+          {:error, {:path_canonicalize_failed, path, reason}} ->
+            {:error, {:workspace_path_unreadable, path, reason}}
+        end
 
-        String.starts_with?(canonical_workspace <> "/", canonical_root_prefix) ->
-          :ok
+      {:error, {:symlink_escape, expanded_workspace, canonical_root}} ->
+        {:error, {:workspace_symlink_escape, expanded_workspace, canonical_root}}
 
-        String.starts_with?(expanded_workspace <> "/", expanded_root_prefix) ->
-          {:error, {:workspace_symlink_escape, expanded_workspace, canonical_root}}
+      {:error, {:outside_workspace_root, canonical_workspace, canonical_root}} ->
+        {:error, {:workspace_outside_root, canonical_workspace, canonical_root}}
 
-        true ->
-          {:error, {:workspace_outside_root, canonical_workspace, canonical_root}}
-      end
-    else
       {:error, {:path_canonicalize_failed, path, reason}} ->
         {:error, {:workspace_path_unreadable, path, reason}}
     end

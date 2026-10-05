@@ -53,24 +53,25 @@ defmodule SymphonyElixir.AppServerTest do
 
       File.mkdir_p!(workspace_root)
       File.mkdir_p!(outside_workspace)
-      File.ln_s!(outside_workspace, symlink_workspace)
 
-      write_workflow_file!(Workflow.workflow_file_path(),
-        workspace_root: workspace_root
-      )
+      with_test_symlink(outside_workspace, symlink_workspace, fn ->
+        write_workflow_file!(Workflow.workflow_file_path(),
+          workspace_root: workspace_root
+        )
 
-      issue = %Issue{
-        id: "issue-workspace-symlink-guard",
-        identifier: "MT-1000",
-        title: "Validate symlink workspace guard",
-        description: "Ensure app-server refuses symlink escape cwd targets",
-        state: "In Progress",
-        url: "https://example.org/issues/MT-1000",
-        labels: ["backend"]
-      }
+        issue = %Issue{
+          id: "issue-workspace-symlink-guard",
+          identifier: "MT-1000",
+          title: "Validate symlink workspace guard",
+          description: "Ensure app-server refuses symlink escape cwd targets",
+          state: "In Progress",
+          url: "https://example.org/issues/MT-1000",
+          labels: ["backend"]
+        }
 
-      assert {:error, {:invalid_workspace_cwd, :symlink_escape, ^symlink_workspace, _root}} =
-               AppServer.run(symlink_workspace, "guard", issue)
+        assert {:error, {:invalid_workspace_cwd, :symlink_escape, ^symlink_workspace, _root}} =
+                 AppServer.run(symlink_workspace, "guard", issue)
+      end)
     after
       File.rm_rf(test_root)
     end

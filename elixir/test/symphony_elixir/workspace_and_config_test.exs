@@ -95,6 +95,44 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
              Path.expand(workspace_root, Path.dirname(Workflow.workflow_file_path()))
   end
 
+  test "canonical descendant validation accepts children and rejects root and siblings" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-canonical-descendant-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      nested_workspace = Path.join([workspace_root, "nested", "MT-42"])
+      outside_workspace = Path.join(test_root, "outside")
+
+      File.mkdir_p!(nested_workspace)
+      File.mkdir_p!(outside_workspace)
+
+      assert {:ok, canonical_nested_workspace} =
+               SymphonyElixir.PathSafety.canonicalize(nested_workspace)
+
+      assert {:ok, canonical_workspace_root} =
+               SymphonyElixir.PathSafety.canonicalize(workspace_root)
+
+      assert {:ok, canonical_outside_workspace} =
+               SymphonyElixir.PathSafety.canonicalize(outside_workspace)
+
+      assert {:ok, ^canonical_nested_workspace} =
+               SymphonyElixir.PathSafety.canonical_descendant(nested_workspace, workspace_root)
+
+      assert {:error, :workspace_root} =
+               SymphonyElixir.PathSafety.canonical_descendant(workspace_root, workspace_root)
+
+      assert {:error,
+              {:outside_workspace_root, ^canonical_outside_workspace, ^canonical_workspace_root}} =
+               SymphonyElixir.PathSafety.canonical_descendant(outside_workspace, workspace_root)
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
   test "workspace keys disambiguate identifiers that sanitize to the same path" do
     workspace_root =
       Path.join(
@@ -197,15 +235,16 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
       File.mkdir_p!(workspace_root)
       File.mkdir_p!(outside_root)
-      File.ln_s!(outside_root, symlink_path)
 
-      write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
+      with_test_symlink(outside_root, symlink_path, fn ->
+        write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
 
-      assert {:ok, canonical_outside_root} = SymphonyElixir.PathSafety.canonicalize(outside_root)
-      assert {:ok, canonical_workspace_root} = SymphonyElixir.PathSafety.canonicalize(workspace_root)
+        assert {:ok, canonical_outside_root} = SymphonyElixir.PathSafety.canonicalize(outside_root)
+        assert {:ok, canonical_workspace_root} = SymphonyElixir.PathSafety.canonicalize(workspace_root)
 
-      assert {:error, {:workspace_outside_root, ^canonical_outside_root, ^canonical_workspace_root}} =
-               Workspace.create_for_issue("MT-SYM")
+        assert {:error, {:workspace_outside_root, ^canonical_outside_root, ^canonical_workspace_root}} =
+                 Workspace.create_for_issue("MT-SYM")
+      end)
     after
       File.rm_rf(test_root)
     end
@@ -227,21 +266,22 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
       File.mkdir_p!(recorded_root)
       File.mkdir_p!(outside_root)
-      File.ln_s!(outside_root, recorded_workspace)
 
-      write_workflow_file!(Workflow.workflow_file_path(),
-        workspace_root: current_root,
-        hook_before_remove: "touch \"#{hook_marker}\""
-      )
+      with_test_symlink(outside_root, recorded_workspace, fn ->
+        write_workflow_file!(Workflow.workflow_file_path(),
+          workspace_root: current_root,
+          hook_before_remove: "touch \"#{hook_marker}\""
+        )
 
-      assert {:ok, canonical_recorded_root} =
-               SymphonyElixir.PathSafety.canonicalize(recorded_root)
+        assert {:ok, canonical_recorded_root} =
+                 SymphonyElixir.PathSafety.canonicalize(recorded_root)
 
-      assert {:error, {:workspace_symlink_escape, ^recorded_workspace, ^canonical_recorded_root}, ""} =
-               Workspace.remove_recorded(recorded_workspace, nil)
+        assert {:error, {:workspace_symlink_escape, ^recorded_workspace, ^canonical_recorded_root}, ""} =
+                 Workspace.remove_recorded(recorded_workspace, nil)
 
-      refute File.exists?(hook_marker)
-      assert File.exists?(outside_root)
+        refute File.exists?(hook_marker)
+        assert File.exists?(outside_root)
+      end)
     after
       File.rm_rf(test_root)
     end
@@ -259,16 +299,17 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       linked_root = Path.join(test_root, "linked-workspaces")
 
       File.mkdir_p!(actual_root)
-      File.ln_s!(actual_root, linked_root)
 
-      write_workflow_file!(Workflow.workflow_file_path(), workspace_root: linked_root)
+      with_test_symlink(actual_root, linked_root, fn ->
+        write_workflow_file!(Workflow.workflow_file_path(), workspace_root: linked_root)
 
-      assert {:ok, canonical_workspace} =
-               SymphonyElixir.PathSafety.canonicalize(Path.join(actual_root, "MT-LINK"))
+        assert {:ok, canonical_workspace} =
+                 SymphonyElixir.PathSafety.canonicalize(Path.join(actual_root, "MT-LINK"))
 
-      assert {:ok, workspace} = Workspace.create_for_issue("MT-LINK")
-      assert workspace == canonical_workspace
-      assert File.dir?(workspace)
+        assert {:ok, workspace} = Workspace.create_for_issue("MT-LINK")
+        assert workspace == canonical_workspace
+        assert File.dir?(workspace)
+      end)
     after
       File.rm_rf(test_root)
     end

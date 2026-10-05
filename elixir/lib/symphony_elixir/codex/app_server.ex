@@ -148,28 +148,24 @@ defmodule SymphonyElixir.Codex.AppServer do
   end
 
   defp validate_workspace_cwd(workspace, nil) when is_binary(workspace) do
-    expanded_workspace = Path.expand(workspace)
-    expanded_root = Config.local_workspace_root()
-    expanded_root_prefix = expanded_root <> "/"
+    case PathSafety.canonical_descendant(workspace, Config.local_workspace_root()) do
+      {:ok, canonical_workspace} ->
+        {:ok, canonical_workspace}
 
-    with {:ok, canonical_workspace} <- PathSafety.canonicalize(expanded_workspace),
-         {:ok, canonical_root} <- PathSafety.canonicalize(expanded_root) do
-      canonical_root_prefix = canonical_root <> "/"
-
-      cond do
-        canonical_workspace == canonical_root ->
+      {:error, :workspace_root} ->
+        with {:ok, canonical_workspace} <- PathSafety.canonicalize(workspace) do
           {:error, {:invalid_workspace_cwd, :workspace_root, canonical_workspace}}
+        else
+          {:error, {:path_canonicalize_failed, path, reason}} ->
+            {:error, {:invalid_workspace_cwd, :path_unreadable, path, reason}}
+        end
 
-        String.starts_with?(canonical_workspace <> "/", canonical_root_prefix) ->
-          {:ok, canonical_workspace}
+      {:error, {:symlink_escape, expanded_workspace, canonical_root}} ->
+        {:error, {:invalid_workspace_cwd, :symlink_escape, expanded_workspace, canonical_root}}
 
-        String.starts_with?(expanded_workspace <> "/", expanded_root_prefix) ->
-          {:error, {:invalid_workspace_cwd, :symlink_escape, expanded_workspace, canonical_root}}
+      {:error, {:outside_workspace_root, canonical_workspace, canonical_root}} ->
+        {:error, {:invalid_workspace_cwd, :outside_workspace_root, canonical_workspace, canonical_root}}
 
-        true ->
-          {:error, {:invalid_workspace_cwd, :outside_workspace_root, canonical_workspace, canonical_root}}
-      end
-    else
       {:error, {:path_canonicalize_failed, path, reason}} ->
         {:error, {:invalid_workspace_cwd, :path_unreadable, path, reason}}
     end
