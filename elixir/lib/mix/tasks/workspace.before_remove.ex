@@ -1,5 +1,6 @@
 defmodule Mix.Tasks.Workspace.BeforeRemove do
   use Mix.Task
+  alias SymphonyElixir.Command
 
   @shortdoc "Close open GitHub PRs for the current branch before workspace removal"
 
@@ -53,7 +54,7 @@ defmodule Mix.Tasks.Workspace.BeforeRemove do
   end
 
   defp gh_available? do
-    not is_nil(System.find_executable("gh"))
+    match?({:ok, _path}, Command.find_executable("gh"))
   end
 
   defp gh_authenticated? do
@@ -61,7 +62,8 @@ defmodule Mix.Tasks.Workspace.BeforeRemove do
   end
 
   defp list_open_pull_request_numbers(repo, branch) do
-    case run_command("gh", [
+    result =
+      run_command("gh", [
            "pr",
            "list",
            "--repo",
@@ -71,17 +73,30 @@ defmodule Mix.Tasks.Workspace.BeforeRemove do
            "--state",
            "open",
            "--json",
-           "number",
-           "--jq",
-           ".[].number"
-         ]) do
+           "number"
+         ])
+
+    case result do
       {:ok, output} ->
-        output
-        |> String.split("\n", trim: true)
-        |> Enum.reject(&(&1 == ""))
+        parse_pull_request_numbers(output)
 
       {:error, _reason} ->
         []
+    end
+  end
+
+  defp parse_pull_request_numbers(output) do
+    case Jason.decode(output) do
+      {:ok, pull_requests} when is_list(pull_requests) ->
+        Enum.flat_map(pull_requests, fn
+          %{"number" => number} when is_integer(number) -> [to_string(number)]
+          _ -> []
+        end)
+
+      _ ->
+        output
+        |> String.split("\n", trim: true)
+        |> Enum.reject(&(&1 == ""))
     end
   end
 
@@ -126,15 +141,11 @@ defmodule Mix.Tasks.Workspace.BeforeRemove do
   end
 
   defp run_command(command, args) do
-    case System.find_executable(command) do
-      nil ->
-        {:error, {:enoent, ""}}
-
-      path ->
-        case System.cmd(path, args, stderr_to_stdout: true) do
-          {output, 0} -> {:ok, output}
-          {output, status} -> {:error, {status, output}}
-        end
+    case Command.run(command, args, stderr_to_stdout: true) do
+      {:ok, {output, 0}} -> {:ok, output}
+      {:ok, {output, status}} -> {:error, {status, output}}
+      {:error, :not_found} -> {:error, {:enoent, ""}}
+      {:error, reason} -> {:error, {reason, ""}}
     end
   end
 end

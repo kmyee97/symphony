@@ -4,7 +4,7 @@ defmodule SymphonyElixir.Codex.AppServer do
   """
 
   require Logger
-  alias SymphonyElixir.{Codex.DynamicTool, Config, PathSafety, SSH}
+  alias SymphonyElixir.{Codex.DynamicTool, Command, Config, PathSafety, SSH}
 
   @initialize_id 1
   @thread_start_id 2
@@ -186,26 +186,15 @@ defmodule SymphonyElixir.Codex.AppServer do
   end
 
   defp start_port(workspace, nil, dynamic_tool_binding) do
-    executable = System.find_executable("bash")
-
-    if is_nil(executable) do
-      {:error, :bash_not_found}
-    else
-      port =
-        Port.open(
-          {:spawn_executable, String.to_charlist(executable)},
-          [
-            :binary,
-            :exit_status,
-            :stderr_to_stdout,
-            args: [~c"-lc", String.to_charlist(local_launch_command(dynamic_tool_binding))],
-            cd: String.to_charlist(workspace),
-            env: tracker_secret_port_env(dynamic_tool_binding),
-            line: @port_line_bytes
-          ]
-        )
-
-      {:ok, port}
+    case Command.start_port(
+           "bash",
+           ["-lc", local_launch_command(dynamic_tool_binding)],
+           cd: workspace,
+           env: tracker_secret_port_env(dynamic_tool_binding),
+           line: @port_line_bytes
+         ) do
+      {:error, :not_found} -> {:error, :bash_not_found}
+      result -> result
     end
   end
 
@@ -217,7 +206,7 @@ defmodule SymphonyElixir.Codex.AppServer do
   defp local_launch_command(dynamic_tool_binding) do
     [
       tracker_secret_unset_command(dynamic_tool_binding),
-      "exec #{Config.settings!().codex.command}"
+      "exec #{local_codex_command()}"
     ]
     |> Enum.reject(&is_nil/1)
     |> Enum.join(" && ")
@@ -231,6 +220,38 @@ defmodule SymphonyElixir.Codex.AppServer do
     ]
     |> Enum.reject(&is_nil/1)
     |> Enum.join(" && ")
+  end
+
+  defp local_codex_command do
+    command = Config.settings!().codex.command
+
+    case :os.type() do
+      {:win32, _} -> windows_command_to_bash(command)
+      _ -> command
+    end
+  end
+
+  defp windows_command_to_bash(command) do
+    case Regex.run(~r|^"([A-Za-z]:[\\/][^"]+)"(?:\s+(.*))?$|, command) do
+      [_, path, arguments] -> shell_escape(windows_path_to_bash(path)) <> " " <> arguments
+      [_, path] -> shell_escape(windows_path_to_bash(path))
+      nil -> unquoted_windows_command_to_bash(command)
+    end
+  end
+
+  defp unquoted_windows_command_to_bash(command) do
+    case Regex.run(~r|^([A-Za-z]:[\\/]\S*)(?:\s+(.*))?$|, command) do
+      [_, path, arguments] -> windows_path_to_bash(path) <> " " <> arguments
+      [_, path] -> windows_path_to_bash(path)
+      nil -> command
+    end
+  end
+
+  defp windows_path_to_bash(path) do
+    case Regex.run(~r|^([A-Za-z]):[\\/](.*)$|, path) do
+      [_, drive, rest] -> "/#{String.downcase(drive)}/#{String.replace(rest, "\\", "/")}"
+      _ -> path
+    end
   end
 
   defp tracker_secret_port_env(dynamic_tool_binding) do

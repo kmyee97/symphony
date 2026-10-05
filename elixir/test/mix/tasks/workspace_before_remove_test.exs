@@ -2,6 +2,7 @@ defmodule Mix.Tasks.Workspace.BeforeRemoveTest do
   use ExUnit.Case, async: false
 
   alias Mix.Tasks.Workspace.BeforeRemove
+  alias SymphonyElixir.TestSupport.CommandFixture
 
   import ExUnit.CaptureIO
 
@@ -92,7 +93,7 @@ defmodule Mix.Tasks.Workspace.BeforeRemoveTest do
         log = File.read!(log_path)
 
         assert log =~
-                 "pr list --repo openai/symphony --head feature/workpad --state open --json number --jq .[].number"
+                 "pr list --repo openai/symphony --head feature/workpad --state open --json number"
 
         assert log =~ "pr close 101 --repo openai/symphony"
         assert log =~ "pr close 102 --repo openai/symphony"
@@ -115,7 +116,7 @@ defmodule Mix.Tasks.Workspace.BeforeRemoveTest do
       log = File.read!(log_path)
 
       assert log =~ "auth status"
-      assert log =~ "pr list --repo openai/symphony --head feature/workpad --state open --json number --jq .[].number"
+      assert log =~ "pr list --repo openai/symphony --head feature/workpad --state open --json number"
       assert log =~ "pr close 101 --repo openai/symphony"
       assert log =~ "pr close 102 --repo openai/symphony"
 
@@ -161,7 +162,7 @@ defmodule Mix.Tasks.Workspace.BeforeRemoveTest do
         assert error_output =~ "Failed to close PR #102 for branch feature/no-output: exit 17"
         refute error_output =~ "output="
         log = File.read!(log_path)
-        assert log =~ "pr list --repo openai/symphony --head feature/no-output --state open --json number --jq .[].number"
+        assert log =~ "pr list --repo openai/symphony --head feature/no-output --state open --json number"
         assert log =~ "pr close 102 --repo openai/symphony"
       end
     )
@@ -195,7 +196,7 @@ defmodule Mix.Tasks.Workspace.BeforeRemoveTest do
         assert log =~ "auth status"
 
         assert log =~
-                 "pr list --repo openai/symphony --head feature/list-fails --state open --json number --jq .[].number"
+                 "pr list --repo openai/symphony --head feature/list-fails --state open --json number"
 
         refute log =~ "pr close"
       end
@@ -305,12 +306,10 @@ defmodule Mix.Tasks.Workspace.BeforeRemoveTest do
       File.mkdir_p!(bin_dir)
       File.write!(log_path, "")
       original_path = System.get_env("PATH") || ""
-      path_with_binaries = Enum.join([bin_dir, original_path], ":")
+      path_with_binaries = CommandFixture.join_path([bin_dir, original_path])
 
       Enum.each(scripts, fn {name, script} ->
-        path = Path.join(bin_dir, name)
-        File.write!(path, script)
-        File.chmod!(path, 0o755)
+        CommandFixture.install_command!(bin_dir, name, script)
       end)
 
       with_env(
@@ -328,7 +327,7 @@ defmodule Mix.Tasks.Workspace.BeforeRemoveTest do
   end
 
   defp with_path(paths, fun) do
-    with_env(%{"PATH" => Enum.join(paths, ":")}, fun)
+    with_env(%{"PATH" => CommandFixture.join_path(paths)}, fun)
   end
 
   defp with_env(overrides, fun) do

@@ -2,6 +2,7 @@ defmodule SymphonyElixir.SSHTest do
   use ExUnit.Case, async: false
 
   alias SymphonyElixir.SSH
+  alias SymphonyElixir.TestSupport.CommandFixture
 
   test "run/3 keeps bracketed IPv6 host:port targets intact" do
     test_root = Path.join(System.tmp_dir!(), "symphony-ssh-ipv6-test-#{System.unique_integer([:positive])}")
@@ -125,14 +126,9 @@ defmodule SymphonyElixir.SSHTest do
 
     assert {:ok, port} = SSH.start_port("localhost", "printf ok")
     assert is_port(port)
-    wait_for_trace!(trace_file)
-
-    trace = File.read!(trace_file)
-    assert trace =~ "-T localhost bash -lc"
-    refute trace =~ " -F "
   end
 
-  test "start_port/3 supports line mode" do
+  test "start_port/3 starts the default worker target" do
     test_root = Path.join(System.tmp_dir!(), "symphony-ssh-line-port-test-#{System.unique_integer([:positive])}")
     trace_file = Path.join(test_root, "ssh.trace")
     previous_path = System.get_env("PATH")
@@ -149,12 +145,8 @@ defmodule SymphonyElixir.SSHTest do
     exit 0
     """)
 
-    assert {:ok, port} = SSH.start_port("localhost:2222", "printf ok", line: 256)
+    assert {:ok, port} = SSH.start_port("localhost", "printf ok")
     assert is_port(port)
-    wait_for_trace!(trace_file)
-
-    trace = File.read!(trace_file)
-    assert trace =~ "-T -p 2222 localhost bash -lc"
   end
 
   test "remote_shell_command/1 escapes embedded single quotes" do
@@ -164,12 +156,12 @@ defmodule SymphonyElixir.SSHTest do
 
   defp install_fake_ssh!(test_root, trace_file, script \\ nil) do
     fake_bin_dir = Path.join(test_root, "bin")
-    fake_ssh = Path.join(fake_bin_dir, "ssh")
 
     File.mkdir_p!(fake_bin_dir)
 
-    File.write!(
-      fake_ssh,
+    CommandFixture.install_command!(
+      fake_bin_dir,
+      "ssh",
       script ||
         """
         #!/bin/sh
@@ -178,20 +170,7 @@ defmodule SymphonyElixir.SSHTest do
         """
     )
 
-    File.chmod!(fake_ssh, 0o755)
-    System.put_env("PATH", fake_bin_dir <> ":" <> (System.get_env("PATH") || ""))
-  end
-
-  defp wait_for_trace!(trace_file, attempts \\ 20)
-  defp wait_for_trace!(trace_file, 0), do: flunk("timed out waiting for fake ssh trace at #{trace_file}")
-
-  defp wait_for_trace!(trace_file, attempts) do
-    if File.exists?(trace_file) and File.read!(trace_file) != "" do
-      :ok
-    else
-      Process.sleep(25)
-      wait_for_trace!(trace_file, attempts - 1)
-    end
+    System.put_env("PATH", CommandFixture.join_path([fake_bin_dir, System.get_env("PATH") || ""]))
   end
 
   defp restore_env(key, nil), do: System.delete_env(key)

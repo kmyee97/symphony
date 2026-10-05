@@ -4,7 +4,7 @@ defmodule SymphonyElixir.Workspace do
   """
 
   require Logger
-  alias SymphonyElixir.{Config, PathSafety, SSH}
+  alias SymphonyElixir.{Command, Config, PathSafety, SSH}
 
   @remote_workspace_marker "__SYMPHONY_WORKSPACE__"
 
@@ -401,12 +401,15 @@ defmodule SymphonyElixir.Workspace do
 
     task =
       Task.async(fn ->
-        System.cmd("sh", ["-lc", command], cd: workspace, stderr_to_stdout: true)
+        Command.run("bash", ["-lc", shell_command(command)], cd: workspace, stderr_to_stdout: true)
       end)
 
     case Task.yield(task, timeout_ms) do
-      {:ok, cmd_result} ->
+      {:ok, {:ok, cmd_result}} ->
         handle_hook_command_result(cmd_result, workspace, issue_context, hook_name)
+
+      {:ok, {:error, reason}} ->
+        {:error, {:workspace_hook_start_failed, hook_name, reason}}
 
       nil ->
         Task.shutdown(task, :brutal_kill)
@@ -560,6 +563,18 @@ defmodule SymphonyElixir.Workspace do
 
   defp shell_escape(value) when is_binary(value) do
     "'" <> String.replace(value, "'", "'\"'\"'") <> "'"
+  end
+
+  defp shell_command(command) when is_binary(command) do
+    case :os.type() do
+      {:win32, _} ->
+        Regex.replace(~r|\b([A-Za-z]):[\\/]([^\s"']*)|, command, fn _match, drive, rest ->
+          "/#{String.downcase(drive)}/#{String.replace(rest, "\\", "/")}"
+        end)
+
+      _ ->
+        command
+    end
   end
 
   defp worker_host_for_log(nil), do: "local"

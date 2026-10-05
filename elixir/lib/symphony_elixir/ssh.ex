@@ -1,29 +1,16 @@
 defmodule SymphonyElixir.SSH do
   @moduledoc false
 
+  alias SymphonyElixir.Command
+
   @spec run(String.t(), String.t(), keyword()) :: {:ok, {String.t(), non_neg_integer()}} | {:error, term()}
   def run(host, command, opts \\ []) when is_binary(host) and is_binary(command) do
-    with {:ok, executable} <- ssh_executable() do
-      {:ok, System.cmd(executable, ssh_args(host, command), opts)}
-    end
+    run_ssh(ssh_args(host, command), opts)
   end
 
   @spec start_port(String.t(), String.t(), keyword()) :: {:ok, port()} | {:error, term()}
   def start_port(host, command, opts \\ []) when is_binary(host) and is_binary(command) do
-    with {:ok, executable} <- ssh_executable() do
-      line_bytes = Keyword.get(opts, :line)
-
-      port_opts =
-        [
-          :binary,
-          :exit_status,
-          :stderr_to_stdout,
-          args: Enum.map(ssh_args(host, command), &String.to_charlist/1)
-        ]
-        |> maybe_put_line_option(line_bytes)
-
-      {:ok, Port.open({:spawn_executable, String.to_charlist(executable)}, port_opts)}
-    end
+    start_ssh_port(ssh_args(host, command), opts)
   end
 
   @spec remote_shell_command(String.t()) :: String.t()
@@ -31,10 +18,17 @@ defmodule SymphonyElixir.SSH do
     "bash -lc " <> shell_escape(command)
   end
 
-  defp ssh_executable do
-    case System.find_executable("ssh") do
-      nil -> {:error, :ssh_not_found}
-      executable -> {:ok, executable}
+  defp run_ssh(args, opts) do
+    case Command.run("ssh", args, opts) do
+      {:error, :not_found} -> {:error, :ssh_not_found}
+      result -> result
+    end
+  end
+
+  defp start_ssh_port(args, opts) do
+    case Command.start_port("ssh", args, opts) do
+      {:error, :not_found} -> {:error, :ssh_not_found}
+      result -> result
     end
   end
 
@@ -47,9 +41,6 @@ defmodule SymphonyElixir.SSH do
     |> maybe_put_port(port)
     |> Kernel.++([destination, remote_shell_command(command)])
   end
-
-  defp maybe_put_line_option(port_opts, nil), do: port_opts
-  defp maybe_put_line_option(port_opts, line_bytes), do: Keyword.put(port_opts, :line, line_bytes)
 
   defp maybe_put_config(args) do
     case System.get_env("SYMPHONY_SSH_CONFIG") do

@@ -1,5 +1,6 @@
 defmodule SymphonyElixir.AppServerTest do
   use SymphonyElixir.TestSupport
+  alias SymphonyElixir.TestSupport.CommandFixture
 
   test "app server rejects the workspace root and paths outside workspace root" do
     test_root =
@@ -1497,6 +1498,11 @@ defmodule SymphonyElixir.AppServerTest do
     end
   end
 
+  @tag skip:
+         if(match?({:win32, _}, :os.type()),
+           do: "native Windows does not support interactive batch-backed SSH test ports",
+           else: false
+         )
   test "app server launches over ssh for remote workers" do
     test_root =
       Path.join(
@@ -1514,14 +1520,15 @@ defmodule SymphonyElixir.AppServerTest do
 
     try do
       trace_file = Path.join(test_root, "ssh.trace")
-      fake_ssh = Path.join(test_root, "ssh")
+      bin_dir = Path.join(test_root, "bin")
       remote_workspace = "/remote/workspaces/MT-REMOTE"
 
       File.mkdir_p!(test_root)
       System.put_env("SYMP_TEST_SSH_TRACE", trace_file)
-      System.put_env("PATH", test_root <> ":" <> (previous_path || ""))
+      File.mkdir_p!(bin_dir)
+      System.put_env("PATH", CommandFixture.join_path([bin_dir, previous_path || ""]))
 
-      File.write!(fake_ssh, """
+      CommandFixture.install_port_command!(bin_dir, "ssh", """
       #!/bin/sh
       trace_file="${SYMP_TEST_SSH_TRACE:-/tmp/symphony-fake-ssh.trace}"
       count=0
@@ -1551,8 +1558,6 @@ defmodule SymphonyElixir.AppServerTest do
         esac
       done
       """)
-
-      File.chmod!(fake_ssh, 0o755)
 
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: "/remote/workspaces",

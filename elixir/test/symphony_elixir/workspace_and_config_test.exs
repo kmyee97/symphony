@@ -4,6 +4,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
   alias SymphonyElixir.Config.Schema
   alias SymphonyElixir.Config.Schema.{Codex, StringOrMap}
   alias SymphonyElixir.Linear.Client
+  alias SymphonyElixir.TestSupport.CommandFixture
 
   test "workspace bootstrap can be implemented in after_create hook" do
     test_root =
@@ -33,7 +34,8 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
       assert {:ok, workspace} = Workspace.create_for_issue("S-1")
       assert File.exists?(Path.join(workspace, ".git"))
-      assert File.read!(Path.join(workspace, "README.md")) == "hook clone\n"
+      assert (File.read!(Path.join(workspace, "README.md")) |> String.replace("\r\n", "\n")) ==
+               "hook clone\n"
       assert File.read!(Path.join([workspace, "keep", "file.txt"])) == "keep me"
     after
       File.rm_rf(test_root)
@@ -1250,7 +1252,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert config.tracker.api_key == api_key
     assert config.tracker.provider["api_key"] == "$#{api_key_env_var}"
     assert config.tracker.secret_environment_names == ["LINEAR_API_KEY", api_key_env_var]
-    assert config.workspace.root == Path.expand(workspace_root)
+    assert config.workspace.root == workspace_root
     assert config.codex.command == "#{codex_bin} app-server"
   end
 
@@ -1591,8 +1593,14 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     path = Path.join(System.tmp_dir!(), invalid_segment)
     expanded_path = Path.expand(path)
 
-    assert {:error, {:path_canonicalize_failed, ^expanded_path, :enametoolong}} =
-             SymphonyElixir.PathSafety.canonicalize(path)
+    case :os.type() do
+      {:win32, _} ->
+        assert {:ok, ^expanded_path} = SymphonyElixir.PathSafety.canonicalize(path)
+
+      _ ->
+        assert {:error, {:path_canonicalize_failed, ^expanded_path, :enametoolong}} =
+                 SymphonyElixir.PathSafety.canonicalize(path)
+    end
   end
 
   test "runtime sandbox policy resolution defaults when omitted and ignores workspace for explicit policies" do
@@ -1671,15 +1679,16 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
     try do
       trace_file = Path.join(test_root, "ssh.trace")
-      fake_ssh = Path.join(test_root, "ssh")
+      bin_dir = Path.join(test_root, "bin")
       workspace_root = "~/.symphony-remote-workspaces"
       workspace_path = "/remote/home/.symphony-remote-workspaces/MT-SSH-WS"
 
       File.mkdir_p!(test_root)
       System.put_env("SYMP_TEST_SSH_TRACE", trace_file)
-      System.put_env("PATH", test_root <> ":" <> (previous_path || ""))
+      File.mkdir_p!(bin_dir)
+      System.put_env("PATH", CommandFixture.join_path([bin_dir, previous_path || ""]))
 
-      File.write!(fake_ssh, """
+      CommandFixture.install_port_command!(bin_dir, "ssh", """
       #!/bin/sh
       trace_file="${SYMP_TEST_SSH_TRACE:-/tmp/symphony-fake-ssh.trace}"
       printf 'ARGV:%s\\n' "$*" >> "$trace_file"
@@ -1692,8 +1701,6 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
       exit 0
       """)
-
-      File.chmod!(fake_ssh, 0o755)
 
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
