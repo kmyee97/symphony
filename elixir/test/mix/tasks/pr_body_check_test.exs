@@ -122,7 +122,8 @@ defmodule Mix.Tasks.PrBody.CheckTest do
     in_temp_repo(fn ->
       write_template!(@template)
 
-      missing_heading = String.replace(@valid_body, "#### Alternatives\n\n- Alternative considered.\n\n", "")
+      missing_heading =
+        Regex.replace(~r/#### Alternatives\r?\n\r?\n- Alternative considered\.\r?\n\r?\n/, @valid_body, "")
       File.write!("body.md", missing_heading)
 
       error_output =
@@ -228,6 +229,73 @@ defmodule Mix.Tasks.PrBody.CheckTest do
         end)
 
       assert error_output =~ "Section cannot be empty: #### Alternatives"
+    end)
+  end
+
+  test "flags blank CRLF-delimited sections" do
+    in_temp_repo(fn ->
+      template = """
+      #### Context
+
+      #### Details
+
+      #### Test Plan
+      """
+
+      body = """
+      #### Context
+
+      Context text.
+
+      #### Details
+
+
+      #### Test Plan
+
+      Verified.
+      """
+
+      write_template!(String.replace(template, "\n", "\r\n"))
+      File.write!("body.md", String.replace(body, "\n", "\r\n"))
+
+      error_output =
+        capture_io(:stderr, fn ->
+          assert_raise Mix.Error, ~r/PR body format invalid/, fn ->
+            Check.run(["lint", "--file", "body.md"])
+          end
+        end)
+
+      assert error_output =~ "Section cannot be empty: #### Details"
+    end)
+  end
+
+  test "flags CRLF headings at end of file as empty" do
+    in_temp_repo(fn ->
+      template = """
+      #### Context
+
+      #### Details
+      """
+
+      body = """
+      #### Context
+
+      Context text.
+
+      #### Details
+      """
+
+      write_template!(String.replace(template, "\n", "\r\n"))
+      File.write!("body.md", String.replace(String.trim_trailing(body), "\n", "\r\n"))
+
+      error_output =
+        capture_io(:stderr, fn ->
+          assert_raise Mix.Error, ~r/PR body format invalid/, fn ->
+            Check.run(["lint", "--file", "body.md"])
+          end
+        end)
+
+      assert error_output =~ "Section cannot be empty: #### Details"
     end)
   end
 

@@ -18,6 +18,17 @@ defmodule SymphonyElixir.StatusDashboardSnapshotTest do
     Snapshot.assert_dashboard_snapshot!("idle", render_snapshot(snapshot_data, 0.0))
   end
 
+  test "snapshot comparison normalizes CRLF fixture content" do
+    name = "crlf-normalization-#{System.unique_integer([:positive])}"
+    relative_path = Path.join("status_dashboard_snapshots", "#{name}.snapshot.txt")
+    fixture_path = Path.join([Path.expand("../fixtures", __DIR__), relative_path])
+
+    File.write!(fixture_path, "line one\r\nline two\r\n")
+    on_exit(fn -> File.rm(fixture_path) end)
+
+    Snapshot.assert_snapshot!(relative_path, "line one\nline two\n")
+  end
+
   test "snapshot fixture: idle dashboard with observability url" do
     previous_port_override = Application.get_env(:symphony_elixir, :server_port_override)
 
